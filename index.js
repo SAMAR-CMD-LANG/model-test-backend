@@ -17,39 +17,11 @@ dotenv.config();
 const app = express();
 
 
-// CORS configuration for multiple origins
-const allowedOrigins = [
-    process.env.FRONTEND_URL,
-    'http://localhost:3000', // Development only
-    // Add additional origins via FRONTEND_URL environment variable
-].filter(Boolean) // Remove undefined values
-
-app.use(
-    cors({
-        origin: function (origin, callback) {
-            console.log('CORS check - Origin:', origin);
-            console.log('CORS check - Allowed origins:', allowedOrigins);
-
-            // Allow requests with no origin (like mobile apps or curl requests)
-            if (!origin) return callback(null, true)
-
-            // Temporary: Allow all Vercel domains for testing
-            if (origin && (origin.includes('.vercel.app') || origin.includes('localhost'))) {
-                console.log('CORS allowed for:', origin);
-                return callback(null, true)
-            }
-
-            if (allowedOrigins.indexOf(origin) !== -1) {
-                console.log('CORS allowed from allowed origins:', origin);
-                callback(null, true)
-            } else {
-                console.log('CORS blocked for:', origin);
-                callback(new Error(`Not allowed by CORS. Origin: ${origin}, Allowed: ${allowedOrigins.join(', ')}`))
-            }
-        },
-        credentials: true,
-    })
-);
+// Simple CORS configuration
+app.use(cors({
+    origin: [process.env.FRONTEND_URL, 'http://localhost:3000'].filter(Boolean),
+    credentials: true,
+}));
 
 
 app.use(express.json());
