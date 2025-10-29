@@ -71,13 +71,19 @@ async function authenticateToken(req, res, next) {
     const cookieToken = req.cookies && req.cookies[process.env.COOKIE_NAME];
     const token = headerToken || cookieToken;
 
+    console.log("Auth check - Header token:", headerToken ? "Present" : "Missing");
+    console.log("Auth check - Cookie token:", cookieToken ? "Present" : "Missing");
+    console.log("Auth check - Cookies received:", Object.keys(req.cookies || {}));
+
     if (!token) {
+        console.log("No token found in request");
         return res.status(401).json({ message: "Invalid or no token found" });
     }
 
     try {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         req.user = decoded;
+        console.log("Token verified successfully for user:", decoded.email);
         next();
     } catch (err) {
         console.error("Token verification error:", err);
@@ -94,14 +100,20 @@ function generateTokenAndSetCookie(user, res) {
 
     const isProduction = process.env.NODE_ENV === "production";
 
+    console.log("Setting cookie - Production mode:", isProduction);
+    console.log("Setting cookie - Frontend URL:", process.env.FRONTEND_URL);
+
+    // Set cookie with appropriate settings for cross-origin
     res.cookie(process.env.COOKIE_NAME, token, {
         maxAge: 24 * 60 * 60 * 1000,
         httpOnly: true,
         sameSite: isProduction ? "none" : "lax",
         secure: isProduction,
         path: "/",
+        domain: isProduction ? undefined : undefined, // Let browser handle domain
     });
 
+    // Also return token in response for frontend to store if cookies fail
     return token;
 }
 
@@ -131,10 +143,10 @@ app.get("/auth/google/callback",
             }
 
 
-            generateTokenAndSetCookie(req.user, res);
+            const token = generateTokenAndSetCookie(req.user, res);
 
-
-            res.redirect(`${process.env.FRONTEND_URL}/dashboard`);
+            // For cross-origin issues, include token in redirect URL
+            res.redirect(`${process.env.FRONTEND_URL}/dashboard?token=${token}`);
         } catch (error) {
             console.error("Error in Google OAuth callback:", error);
 
@@ -235,10 +247,11 @@ app.post("/auth/login", async (req, res) => {
         }
 
         // Generate token and set cookie using helper function
-        generateTokenAndSetCookie(user, res);
+        const token = generateTokenAndSetCookie(user, res);
 
         res.status(200).json({
             message: "Login successful",
+            token: token, // Include token in response for cross-origin issues
             user: {
                 id: user.id,
                 name: user.name,
@@ -253,10 +266,13 @@ app.post("/auth/login", async (req, res) => {
 });
 
 app.post("/auth/logout", (req, res) => {
+    const isProduction = process.env.NODE_ENV === "production";
+
     res.clearCookie(process.env.COOKIE_NAME, {
         httpOnly: true,
-        sameSite: "lax",
-        secure: false,
+        sameSite: isProduction ? "none" : "lax",
+        secure: isProduction,
+        path: "/",
     });
     res.status(200).json({ message: "logout successful" });
 });
@@ -1506,7 +1522,30 @@ app.get("/health", (req, res) => {
     res.json({
         status: "OK",
         timestamp: new Date().toISOString(),
-        environment: process.env.NODE_ENV || 'development'
+        environment: process.env.NODE_ENV || 'development',
+        cors_origins: allowedOrigins,
+        frontend_url: process.env.FRONTEND_URL
+    });
+});
+
+// Debug endpoint to check authentication
+app.get("/debug/auth", (req, res) => {
+    const authHeader = req.headers["authorization"] || "";
+    const headerToken = authHeader && authHeader.split(" ")[1];
+    const cookieToken = req.cookies && req.cookies[process.env.COOKIE_NAME];
+
+    res.json({
+        hasAuthHeader: !!authHeader,
+        hasHeaderToken: !!headerToken,
+        hasCookieToken: !!cookieToken,
+        cookies: Object.keys(req.cookies || {}),
+        headers: {
+            origin: req.headers.origin,
+            referer: req.headers.referer,
+            'user-agent': req.headers['user-agent']
+        },
+        environment: process.env.NODE_ENV,
+        cookieName: process.env.COOKIE_NAME
     });
 });
 
