@@ -1518,15 +1518,24 @@ app.post("/auth/change-password", authenticateToken, async (req, res) => {
     }
 });
 
+// Simple test endpoint
+app.get("/test", (req, res) => {
+    res.json({ status: "OK", message: "Backend is working!" });
+});
+
 // Health check endpoint
 app.get("/health", (req, res) => {
-    res.json({
-        status: "OK",
-        timestamp: new Date().toISOString(),
-        environment: process.env.NODE_ENV || 'development',
-        cors_origins: allowedOrigins,
-        frontend_url: process.env.FRONTEND_URL
-    });
+    try {
+        res.json({
+            status: "OK",
+            timestamp: new Date().toISOString(),
+            environment: process.env.NODE_ENV || 'development',
+            cors_origins: [process.env.FRONTEND_URL, 'http://localhost:3000'].filter(Boolean),
+            frontend_url: process.env.FRONTEND_URL
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 });
 
 // Debug endpoint to check authentication
