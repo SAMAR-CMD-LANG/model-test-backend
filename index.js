@@ -17,9 +17,25 @@ dotenv.config();
 const app = express();
 
 
+// CORS configuration for multiple origins
+const allowedOrigins = [
+    process.env.FRONTEND_URL,
+    'http://localhost:3000', // Development only
+    // Add additional origins via FRONTEND_URL environment variable
+].filter(Boolean) // Remove undefined values
+
 app.use(
     cors({
-        origin: process.env.FRONTEND_URL,
+        origin: function (origin, callback) {
+            // Allow requests with no origin (like mobile apps or curl requests)
+            if (!origin) return callback(null, true)
+
+            if (allowedOrigins.indexOf(origin) !== -1) {
+                callback(null, true)
+            } else {
+                callback(new Error('Not allowed by CORS'))
+            }
+        },
         credentials: true,
     })
 );
@@ -34,8 +50,10 @@ app.use(
         resave: false,
         saveUninitialized: false,
         cookie: {
-            secure: false,
+            secure: process.env.NODE_ENV === 'production', // Use secure cookies in production
+            httpOnly: true,
             maxAge: 24 * 60 * 60 * 1000,
+            sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // Allow cross-site cookies in production
         },
     })
 );
@@ -1481,6 +1499,15 @@ app.post("/auth/change-password", authenticateToken, async (req, res) => {
         console.error("Change password error:", error);
         res.status(500).json({ message: "Internal server error" });
     }
+});
+
+// Health check endpoint
+app.get("/health", (req, res) => {
+    res.json({
+        status: "OK",
+        timestamp: new Date().toISOString(),
+        environment: process.env.NODE_ENV || 'development'
+    });
 });
 
 app.listen(PORT, () => {
