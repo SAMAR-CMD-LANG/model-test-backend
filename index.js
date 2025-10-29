@@ -27,13 +27,24 @@ const allowedOrigins = [
 app.use(
     cors({
         origin: function (origin, callback) {
+            console.log('CORS check - Origin:', origin);
+            console.log('CORS check - Allowed origins:', allowedOrigins);
+
             // Allow requests with no origin (like mobile apps or curl requests)
             if (!origin) return callback(null, true)
 
+            // Temporary: Allow all Vercel domains for testing
+            if (origin && (origin.includes('.vercel.app') || origin.includes('localhost'))) {
+                console.log('CORS allowed for:', origin);
+                return callback(null, true)
+            }
+
             if (allowedOrigins.indexOf(origin) !== -1) {
+                console.log('CORS allowed from allowed origins:', origin);
                 callback(null, true)
             } else {
-                callback(new Error('Not allowed by CORS'))
+                console.log('CORS blocked for:', origin);
+                callback(new Error(`Not allowed by CORS. Origin: ${origin}, Allowed: ${allowedOrigins.join(', ')}`))
             }
         },
         credentials: true,
@@ -69,11 +80,13 @@ async function authenticateToken(req, res, next) {
     const authHeader = req.headers["authorization"] || "";
     const headerToken = authHeader && authHeader.split(" ")[1];
     const cookieToken = req.cookies && req.cookies[process.env.COOKIE_NAME];
-    const token = headerToken || cookieToken;
+    const clientCookieToken = req.cookies && req.cookies[`${process.env.COOKIE_NAME}_client`];
+    const token = headerToken || cookieToken || clientCookieToken;
 
     console.log("Auth check - Header token:", headerToken ? "Present" : "Missing");
-    console.log("Auth check - Cookie token:", cookieToken ? "Present" : "Missing");
-    console.log("Auth check - Cookies received:", Object.keys(req.cookies || {}));
+    console.log("Auth check - HttpOnly cookie token:", cookieToken ? "Present" : "Missing");
+    console.log("Auth check - Client cookie token:", clientCookieToken ? "Present" : "Missing");
+    console.log("Auth check - All cookies received:", Object.keys(req.cookies || {}));
 
     if (!token) {
         console.log("No token found in request");
@@ -103,17 +116,24 @@ function generateTokenAndSetCookie(user, res) {
     console.log("Setting cookie - Production mode:", isProduction);
     console.log("Setting cookie - Frontend URL:", process.env.FRONTEND_URL);
 
-    // Set cookie with appropriate settings for cross-origin
+    // Set httpOnly cookie (for same-origin requests)
     res.cookie(process.env.COOKIE_NAME, token, {
         maxAge: 24 * 60 * 60 * 1000,
         httpOnly: true,
         sameSite: isProduction ? "none" : "lax",
         secure: isProduction,
         path: "/",
-        domain: isProduction ? undefined : undefined, // Let browser handle domain
     });
 
-    // Also return token in response for frontend to store if cookies fail
+    // Set non-httpOnly cookie that frontend can read (for cross-origin)
+    res.cookie(`${process.env.COOKIE_NAME}_client`, token, {
+        maxAge: 24 * 60 * 60 * 1000,
+        httpOnly: false, // Frontend can read this
+        sameSite: isProduction ? "none" : "lax",
+        secure: isProduction,
+        path: "/",
+    });
+
     return token;
 }
 
@@ -268,12 +288,21 @@ app.post("/auth/login", async (req, res) => {
 app.post("/auth/logout", (req, res) => {
     const isProduction = process.env.NODE_ENV === "production";
 
+    // Clear both cookies
     res.clearCookie(process.env.COOKIE_NAME, {
         httpOnly: true,
         sameSite: isProduction ? "none" : "lax",
         secure: isProduction,
         path: "/",
     });
+
+    res.clearCookie(`${process.env.COOKIE_NAME}_client`, {
+        httpOnly: false,
+        sameSite: isProduction ? "none" : "lax",
+        secure: isProduction,
+        path: "/",
+    });
+
     res.status(200).json({ message: "logout successful" });
 });
 
@@ -1545,8 +1574,42 @@ app.get("/debug/auth", (req, res) => {
             'user-agent': req.headers['user-agent']
         },
         environment: process.env.NODE_ENV,
-        cookieName: process.env.COOKIE_NAME
+        cookieName: process.env.COOKIE_NAME,
+        frontendUrl: process.env.FRONTEND_URL,
+        backendUrl: process.env.BACKEND_URL
     });
+});
+
+// Test login endpoint for debugging
+app.post("/debug/test-login", async (req, res) => {
+    try {
+        // Create a test token
+        const testUser = { id: 1, email: 'test@example.com' };
+        const token = jwt.sign(testUser, process.env.JWT_SECRET, { expiresIn: "24h" });
+
+        const isProduction = process.env.NODE_ENV === "production";
+
+        res.cookie(process.env.COOKIE_NAME, token, {
+            maxAge: 24 * 60 * 60 * 1000,
+            httpOnly: true,
+            sameSite: isProduction ? "none" : "lax",
+            secure: isProduction,
+            path: "/",
+        });
+
+        res.json({
+            message: "Test login successful",
+            token: token,
+            user: testUser,
+            cookieSettings: {
+                sameSite: isProduction ? "none" : "lax",
+                secure: isProduction,
+                httpOnly: true
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 });
 
 app.listen(PORT, () => {
